@@ -1,0 +1,98 @@
+================================================================================
+PLATFORMIO BUILD TROUBLESHOOTING GUIDE & BUG FIX LOG
+Project: Custom Universal Remote Control (Universal_Controller_MainMCU_Code_pio)
+Platform: Raspberry Pi Pico (RP2040) / earlephilhower core / FreeRTOS
+================================================================================
+
+1. ISSUE DESCRIPTION & ERROR SYMPTOM
+------------------------------------
+When running `pio run` or clicking Build in PlatformIO, the build fails immediately
+during dependency resolution with the error:
+
+    Processing pico (platform: https://github.com/maxgerhardt/platform-raspberrypi.git; board: pico; framework: arduino)
+    --------------------------------------------------------------------------------
+    MissingPackageManifestError: Could not find one of 'package.json' manifest files in the package
+
+
+2. ROOT CAUSE
+-------------
+In platformio.ini:
+    platform = https://github.com/maxgerhardt/platform-raspberrypi.git
+    board_build.core = earlephilhower
+
+PlatformIO installs the Earle Philhower Arduino core via git repository into:
+    C:\Users\<USERNAME>\.platformio\packages\framework-arduinopico
+
+If an earlier installation, download, or git clone was interrupted (e.g. network timeout,
+IDE closed prematurely, or cancelled process), the git clone inside `framework-arduinopico`
+remains in an incomplete/corrupted state (e.g., git error: "packfile ... does not match index"
+or "fatal: bad object HEAD").
+
+Because the folder `framework-arduinopico` already exists on disk, PlatformIO thinks the
+package is installed and attempts to read its `package.json`. Since the clone was interrupted
+before checking out the working tree, `package.json` is missing, which causes
+PlatformIO to throw `MissingPackageManifestError`.
+
+
+3. HOW TO DIAGNOSE / CONFIRM
+----------------------------
+Open PowerShell and check the contents of the package folder:
+
+    Get-ChildItem -Path "$env:USERPROFILE\.platformio\packages\framework-arduinopico"
+
+If you only see `.git`, `.github`, and `.gitmodules` (or if `package.json` is missing),
+or if running:
+
+    cd "$env:USERPROFILE\.platformio\packages\framework-arduinopico"
+    git status
+
+returns "fatal: bad object HEAD" or "packfile does not match index", the package is corrupted.
+
+
+4. STEP-BY-STEP FIX
+-------------------
+
+Option A: Via PowerShell (Fastest)
+----------------------------------
+1. Close any running PlatformIO tasks / VS Code build windows.
+2. Open PowerShell and remove the corrupted package directory:
+
+    Remove-Item -Recurse -Force "$env:USERPROFILE\.platformio\packages\framework-arduinopico"
+
+3. (Optional) Clear temporary download cache if needed:
+    Remove-Item -Recurse -Force "$env:USERPROFILE\.platformio\.cache\tmp" -ErrorAction SilentlyContinue
+
+4. Run the build command again:
+
+    & "$env:USERPROFILE\.platformio\penv\Scripts\pio.exe" run
+
+    (Or in VS Code, click the PlatformIO "Build" checkmark icon in the bottom status bar).
+
+PlatformIO will detect that `framework-arduinopico` is missing and automatically
+re-clone the repository from GitHub (https://github.com/earlephilhower/arduino-pico.git)
+along with all required submodules (FreeRTOS-Kernel, pico-sdk, etc.).
+
+
+Option B: Via Windows File Explorer
+-----------------------------------
+1. Press Win + R, enter `%USERPROFILE%\.platformio\packages` and press Enter.
+2. Locate the folder named:
+       framework-arduinopico
+3. Delete the `framework-arduinopico` folder completely (Shift + Delete).
+4. Return to VS Code and trigger a fresh PlatformIO Build.
+
+
+5. NOTES ON RE-BUILD TIME
+-------------------------
+- The `arduino-pico` repository and its submodules (FreeRTOS kernel, LittleFS, Pico SDK, etc.)
+  take around 3 to 6 minutes to clone and compile on the initial build depending on internet
+  speed and CPU.
+- Do NOT cancel the build or close VS Code while "Tool Manager: Installing git+https://..."
+  is displayed in the terminal, as interrupting this step will corrupt the package again.
+- Once successfully compiled, subsequent incremental builds will take only a few seconds.
+
+================================================================================
+Log Date: 2026-10-25
+Status: Tested and verified working. Build succeeds with .uf2 / .elf / .bin generated.
+================================================================================
+
